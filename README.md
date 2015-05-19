@@ -33,7 +33,7 @@ pq.conn( connStr, 'set search_path=foo' )
 >between queries; does not support pg based prepared statements; does not support
 >some automatic data conversion, eg, `timestamp` to `new Date()`.
 
-## Theory of Operation
+## Simple Example
 
 The general work flow is
 - `let rcds = null;`
@@ -51,7 +51,7 @@ Connection and query methods return a Promise. Other return data out of the resu
 _Before a query is called, the previous query\'s results are cleared._
 
 
-## Promise Returning Functions
+## API
 
 ### Connection Functions
 
@@ -65,42 +65,45 @@ _Before a query is called, the previous query\'s results are cleared._
 	- use different `connectString` for different `initializationQuery`s
 
 `pq.end() => Promise`
+
 	- if in transaction, rolls back
 	- clears results
 	- puts connection back into the pool
 
 `pq.finish() => Promise`
+
 	- `pq.end().then()`
 	- closes connection to database
 	- clears connection from pool
 
-## Query Functions
+### Query Functions
 
 `pq.query( queryString, [ args ] ) => Promise`
 
-- `args` is optional - if existent, simply calls `queryParams()`
+  - `args` is optional - if existent, simply calls `queryParams()`
 
 `pq.queryParams( queryString, [ args ] ) => Promise`
 
 `pq.prepare( name, queryString, [ types ], ignoreExists ) => Promise`
 
-- create a Prepared Statement
-- if `ignoreExists`, ignores error if a Prepared Statement of that name already exists
-- `types` optional, default null
-- `ignoreExists` optional, default false
+  - create a Prepared Statement
+  - if `ignoreExists`, ignores error if a Prepared Statement of that name already exists
+  - `types` optional, default null
+  - `ignoreExists` optional, default false
 
 `pq.execute( name, [ args ] ) => Promise`
+
 `pq.queryPrepared( name, [ args ] ) => Promise`
 
-- execute a prepared statement
+  - execute a prepared statement
 
 `pq.deallocate( [ name ], ignoreNotExists ) => Promise`
 
-- deallocate the prepared statement
-- `name` optional, default "ALL"
-- `ignoreNotExists` optional, default false
-- if no `name`, deallocates ALL Prepared Statements in the session
-- if `ignoreNotExists`, ignores error if a Prepared Statement of that name does not exist
+  - deallocate the prepared statement
+  - `name` optional, default "ALL"
+  - `ignoreNotExists` optional, default false
+  - if no `name`, deallocates ALL Prepared Statements in the session
+  - if `ignoreNotExists`, ignores error if a Prepared Statement of that name does not exist
 
 
 ### Transaction Functions
@@ -123,7 +126,7 @@ User directly queries `begin, commit, rollback` at her own risk. `savepoint` is 
 	- `ignoreNoTransaction` is optional, default false
 	- if `ignoreNoTransaction` then "No Transaction in Progress" error ignored
 
-## Non-Promise Returning Functions
+### Non-Promise Returning Functions
 
 ### Configuration
 
