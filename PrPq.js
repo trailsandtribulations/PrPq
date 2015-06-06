@@ -16,7 +16,7 @@
  * - begin() - begins trans, returns Promise
  * - commit() - commits trans, returns Promise
  * - rollback() - rolls back trans, returns Promise
- * - inTrans - get whether instance inside transaction
+ * - inTrans() - get whether instance inside transaction
  *
  * types (as read from query):
  * - oid, integer, float and bool are converted to int, int, float, boolean respectively
@@ -49,7 +49,6 @@
 
 // class PrPq - empty shell until connected
 var PrPq = () => {
-  //-this._libpq = null;
   this._inTrans = false;
   this._conn = null;
 }
@@ -63,11 +62,10 @@ module.exports = PrPq;
 */
 PrPq.prototype.conn = ( connStr, initSQL ) => {
   let pq = this;
-  //-pq._libpq = new (require('libpq'))();
+  //-console.log( 'conn: '+connStr );
   return new Promise( (resolve,reject) => {
     // have connection in pool - use it
     if( PrPq._pool.available.has(connStr) && PrPq._pool.available.get(connStr).length > 0 ) {
-      //~console.log( 'pooled conn: '+connStr );
       pq._conn = PrPq._pool.available.get(connStr).pop();
       if( initSQL == null ) resolve(pq);
       else pq.query( initSQL ).then( () => resolve(pq) ).catch( (e) => reject(e) );
@@ -81,7 +79,7 @@ PrPq.prototype.conn = ( connStr, initSQL ) => {
     else {
       // inc clientCt even though it might error out, preventing race condition
       PrPq._pool.clientCt++;
-      //~console.log( 'new conn: '+connStr+', clientCt='+PrPq._pool.clientCt );
+      //-console.log( 'new conn: '+connStr+', clientCt='+PrPq._pool.clientCt );
       pq._conn = {
         connStr: connStr,
         libpq: new (require('libpq'))(),
@@ -241,7 +239,18 @@ PrPq.prototype._consume = () => {
   // if not busy, nothing to consume
   if( !pq._conn.libpq.isBusy() ) return Promise.resolve( pq );
 
-  // startReader() to listen to 'readable' events
+  //
+  return new Promise( (resolve,reject) => {
+    function consume() {
+      if( !pq._conn.libpq.consumeInput() ) return reject( pq._conn.libpq.errorMessage() );
+      if( !pq._conn.libpq.isBusy() ) return resolve( pq );
+      setTimeout( consume );
+    }
+    consume();
+  } );
+  //
+
+  /* startReader() to listen to 'readable' events
   return new Promise( (resolve,reject) => {
     pq._conn.libpq.startReader();
     pq._conn.libpq.on('readable', function() {
@@ -261,6 +270,7 @@ PrPq.prototype._consume = () => {
       resolve( pq );
     });
   });
+  */
 }
 
 
@@ -286,7 +296,7 @@ PrPq.prototype.end = () => {
   let pq = this;
 
   // if in transaction, rollback first
-  if( pq.inTrans ) return Promise( (resolve,reject) => {
+  if( pq.inTrans() ) return Promise( (resolve,reject) => {
     pq.rollback().then( () => resolve( pq.end() ) )
   })
 
@@ -331,7 +341,7 @@ PrPq.prototype.finish = () => {
 }
 
 /* result funcs - only values, no Promises here!
- * - rows - get all rows as an array
+ * - rows() - all rows as an array
  * - row( rowNo ) - returns rowNo (or 0) row as an object
  * - col( row, col ) - returns column value
  *   = if first col is col1, then following are identical: col(0,0), col(0,'col1'), col('col1'), col()
@@ -342,21 +352,20 @@ PrPq.prototype.finish = () => {
  *   = lack of js types means there is not a 1::1 mapping between pg types and js types
  *   = also consider that most data pulled will go upstream, so not parsing if not used is good idea
  *   = NOT supported: pg arrays, records, geometry, etc
- * - rowCount - get number of rows retrieved (select, as versus DML)
- * - colCount - get number of cols in each row (select, as versus DML)
- * - affectedRows - get number of rows affected by DML insert, update or delete
+ * - rowCount() - number of rows retrieved (select, as versus DML)
+ * - colCount() - number of cols in each row (select, as versus DML)
+ * - affectedRows() - number of rows affected by DML insert, update or delete
  */
-//~PrPq.prototype.rows = () => {
-Object.defineProperty( PrPq, 'rows', { get: () => {
+PrPq.prototype.rows = () => {
   let arr = [];
-  for( let r=0; r<this.rowCount; r++ ) arr.push( this.row(r) );
+  for( let r=0; r<this.rowCount(); r++ ) arr.push( this.row(r) );
   return arr;
-} } );
+};
 PrPq.prototype.row = (r) => {
   if( r === undefined || r === null ) r = 0;
-  if( r > this.rowCount ) throw( 'ERR: cannot fetch row '+c );
+  if( r > this.rowCount() ) throw( 'ERR: cannot fetch row '+c );
   let m = {};
-  for( let c=0; c<this.colCount; c++ ) {
+  for( let c=0; c<this.colCount(); c++ ) {
     m[this._conn.libpq.fname(c)] = 1;
     m[this._conn.libpq.fname(c)] = this._conn.libpq.getisnull(r,c) ? null : 0;
     m[this._conn.libpq.fname(c)] = this._conn.libpq.getisnull(r,c) ? null : this.col(r,c);
@@ -404,17 +413,17 @@ PrPq.val = function( type, val ) {
 PrPq.prototype.begin = () => {
   let pq = this;
   return Promise( (resolve,reject) => {
-    if( pq.inTrans ) pq.rollback().then( () => reject( 'begin: transaction already begun' ) );
+    if( pq.inTrans() ) pq.rollback().then( () => reject( 'begin: transaction already begun' ) );
     pq.query( 'begin' ).then( () => {
       pq._inTrans = true;
       resolve( pq );
     });
   } );
 };
-Object.defineProperty( PrPq, 'inTrans', { get: () => this._conn._intrans } );
+PrPq.prototype.inTrans = () => this._inTrans;
 PrPq.prototype.commit = ( ignoreNoTransaction ) => {
   let pq = this;
-  if( !pq.inTrans && !ignoreNoTransaction ) return Promise.reject( 'commit: transaction not begun' );
+  if( !pq.inTrans() && !ignoreNoTransaction ) return Promise.reject( 'commit: transaction not begun' );
   return Promise( (resolve,reject) => pq.query( 'commit' )
     .then( () => {
       pq._inTrans = false;
@@ -428,7 +437,7 @@ PrPq.prototype.commit = ( ignoreNoTransaction ) => {
 };
 PrPq.prototype.rollback = ( ignoreNoTransaction ) => {
   let pq = this;
-  if( !pq.inTrans && !ignoreNoTransaction ) return Promise.reject( 'rollback: transaction not begun' );
+  if( !pq.inTrans() && !ignoreNoTransaction ) return Promise.reject( 'rollback: transaction not begun' );
   return Promise( (resolve,reject) => pq.query( 'rollback' )
     .then( () => {
       pq._inTrans = false;
@@ -441,12 +450,9 @@ PrPq.prototype.rollback = ( ignoreNoTransaction ) => {
   } ) );
 };
 
-Object.defineProperty( PrPq, 'rowCount', { get: () => this._conn.libpq.ntuples() } );
-//~PrPq.prototype.rowCount = () => this._conn.libpq.ntuples();
-Object.defineProperty( PrPq, 'colCount', { get: () => this._conn.libpq.nfields() } );
-//~PrPq.prototype.colCount = () => this._conn.libpq.nfields();
-Object.defineProperty( PrPq, 'affectedRows', { get: () => this._conn.libpq.cmdTuples() } );
-//~PrPq.prototype.affectedRows = () => this._conn.libpq.cmdTuples();
+PrPq.prototype.rowCount = () => this._conn.libpq.ntuples();
+PrPq.prototype.colCount = () => this._conn.libpq.nfields();
+PrPq.prototype.affectedRows = () => this._conn.libpq.cmdTuples();
 
 
 /* testing
@@ -460,12 +466,12 @@ var testDb = function( i ) {
   pq.conn( dbParams.connStr, dbParams.initSQL )
   .then( () => pq.query( "select true::boolean as val" ) )
   .then( () => {
-    console.log( i+'.1. rowCount: '+pq.rowCount );
+    console.log( i+'.1. rowCount: '+pq.rowCount() );
     console.log( i+'.1. row: ', pq.row(0) );
   } )
   .then( () => pq.query( "select * from ts_data" ) )
   .then( () => {
-    console.log( i+'.2. rowCount: '+pq.rowCount;
+    console.log( i+'.2. rowCount: '+pq.rowCount();
   })
   .then( () => pq.queryPrepared( 'ts_data_insert', [ null, '{"name":"jonno","text":"hello test5"}' ] ) )
   .then( () => {

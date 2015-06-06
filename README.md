@@ -39,14 +39,12 @@ The general work flow is
 - `let rcds = null;`
 - `let pq = new PrPq()` - create a new PrPq instance
 - `pq.conn(...)` - grab a connection for this instance\s session
-- `then( () => ...; return pq.query(... ) )` - query the database
-- `then( () => rcds = pq.rows; return Promise.resolve(pq) )` - do something with results, return promise
+- `then( () => { ...; return pq.query(... ) } )` - query the database
+- `then( () => { rcds = pq.rows(); return Promise.resolve(pq) } )` - do something with results, return promise
 - `then( () => return pq.end() )` - close 
 - `then( () => ... )` - sail on
 
-results, ..., then `end()`. A resolved Promise always returns the PrPq instance.
-
-Connection and query methods return a Promise. Other return data out of the results.
+Connection, transaction and query methods return a Promise. Other return data from the results.
 
 _Before a query is called, the previous query\'s results are cleared._
 
@@ -141,10 +139,10 @@ User directly queries `begin, commit, rollback` at her own risk. `savepoint` is 
 
 ### Result Functions
 
-- `pq.rowCount` - get number of rows retreived by a query
-- `pq.colCount` - get number of cols in one row
-- `pq.affectedRows` - get number of rows affected by DML
-- `pq.rows` - get array of all rows retreived
+- `pq.rowCount()` - number of rows retreived by a query
+- `pq.colCount()` - number of cols in one row
+- `pq.affectedRows()` - number of rows affected by DML
+- `pq.rows()` - array of all rows retreived
 - `pq.row([r])` - `r`th row. 0 if undefined
 - `pq.col([r],[c])` - column value by number or name from `r`th row; 0 if undefined
 
