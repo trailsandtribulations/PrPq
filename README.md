@@ -1,14 +1,15 @@
 # PrPq - Promise-Based Node / Postgres Module
 
 A simple Promise-base node.js module for Postgres, based on Brain Carlson\'s
-[node-libpq](https://github.com/brianc/node-libpq).
+[node-libpq](https://github.com/brianc/node-libpq). Uses Crockford constructor.
 
 Like [node-postgres](https://github.com/brianc/node-postgres), PrPq does its own
 connection pooling, howbeit not quite as resilient as pg\'s, and not quite as fast.
 A straight forward approach that offers a way out of callback hell.
 
 ````javascript
-let pq = new (require('./PrPq'))();
+let PrPq = require( './PrPq' ),
+    pq = /PrPq.constructor();
 pq.conn( connStr, 'set search_path=foo' )
 .then( () => pq.query( 'select * from bar where usr_id=$1', [usrId] ) )
 .then( () => {
@@ -37,8 +38,8 @@ pq.conn( connStr, 'set search_path=foo' )
 
 The general work flow is
 - `let rcds = null;`
-- `let pq = new PrPq()` - create a new PrPq instance
-- `pq.conn(...)` - grab a connection for this instance\s session
+- `let pq = require('./PrPq').construct()` - construct a new PrPq object
+- `pq.conn(...)` - grab a connection for the object
 - `then( () => { ...; return pq.query(... ) } )` - query the database
 - `then( () => { rcds = pq.rows(); return Promise.resolve(pq) } )` - do something with results, return promise
 - `then( () => return pq.end() )` - close 
@@ -124,18 +125,18 @@ User directly queries `begin, commit, rollback` at her own risk. `savepoint` is 
 	- `ignoreNoTransaction` is optional, default false
 	- if `ignoreNoTransaction` then "No Transaction in Progress" error ignored
 
+`pq.inTrans() => bool`
+
+  - whether in transaction
+
 ### Non-Promise Returning Functions
 
 ### Configuration
 
-- `PrPq.setMAXCONNECTIONS(ct)` 
+- `PrPq.setMAXCONNECTIONS( ct )` 
 	- sets the maximum number of pool connections
 	- will never be set lower than the current number of pooled connections
-- `PrPq.MAXCONNETIONS` - get max total pool size over all subpools
-
-### State Functions
-
-- `pq.inTrans` - get whether in transaction
+- `PrPq.getMAXCONNETIONS` - get max total pool size over all subpools
 
 ### Result Functions
 
