@@ -13,14 +13,11 @@ let PrPq = require( './PrPq' ),
 pq.conn( connStr, 'set search_path=foo' )
 .then( () => pq.query( 'select * from bar where usr_id=$1', [usrId] ) )
 .then( () => {
-	if( pq.rowCount() ) == 0 ) return Promise.reject( 'bar record not found' );
+	if( pq.rowCount() ) == 0 ) throw( 'bar record not found' );
 	usr = pq.row(0);
 	return pq.query( 'select * from barbar where usr_id=$1', [usrId] ) )
 })
-.then( () => {
-	usrbars = pq.rows();
-	pq.end();
-}
+.then( () => pq.end( pq.rows() )
 .catch( err => {
 	console.log( 'ERROR: '+err );
 	pq.end();
@@ -45,6 +42,18 @@ The general work flow is
 - `then( () => return pq.end() )` - close 
 - `then( () => ... )` - sail on
 
+As a Promise function that pulls a row from the database
+````
+exports.stateCities = ( args ) =>  new Promise( (resolve,reject) => {
+  let pq = PrPq.construct();
+  pq.conn( connParams.connStr, connParams.initQuery )
+  .then( () => pq.query( "select * from cities where state=$1", [args.state] ) )
+  .then( () => resolve( pq.end( pq.rows() ) ) )
+  .catch( e => reject(e) );
+} );
+````
+
+
 Connection, transaction and query methods return a Promise. Other return data from the results.
 
 _Before a query is called, the previous query\'s results are cleared._
@@ -64,10 +73,13 @@ _Before a query is called, the previous query\'s results are cleared._
 	- use different `connectString` for different `initializationQuery`s
 
 `pq.end() => Promise`
+`pq.end( val ) => val`
 
+  - _don't forget to `end()` your connection!_
 	- if in transaction, rolls back
 	- clears results
 	- puts connection back into the pool
+  - ability to resolve `val` makes `end()` more intuitive (and less likely to forget!)
 
 `pq.finish() => Promise`
 

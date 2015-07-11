@@ -109,14 +109,15 @@ exports.construct = function() {
        *   = eg, "set search_path = ts_app; set time zone 'UTC'"
        *   = eg, "select ts_app.initPrepare()"
       */
-      conn = ( connStr, initSQL ) => new Promise( (resolve,reject) => {
+      conn = ( argConnStr, initSQL ) => new Promise( (resolve,reject) => {
+        connStr = argConnStr;
         // have connection in pool - use it
         if( pool.available.has(connStr) && pool.available.get(connStr).length > 0 ) {
-          conn = pool.available.get(connStr).pop();
+          libpq = pool.available.get(connStr).pop();
           if( initSQL == null ) resolve(pq);
           else query( initSQL ).then( () => resolve(pq) ).catch( (e) => reject(e) );
         }
-        // at max connections - put into pending
+        // at max connections - put into pending { pq, resolve, reject }
         else if( pool.clientCt >= pool.MAXCLIENTS ) {
           if( !pool.pending.has( connStr ) ) pool.pending.set( connStr, new Array() );
           pool.pending.get(connStr).push( { pq: pq, resolve: resolve, reject: reject } );
@@ -126,7 +127,6 @@ exports.construct = function() {
           // inc clientCt even though it might error out, preventing race condition
           pool.clientCt++;
           //-console.log( `new conn: ${connStr}, clientCt=${pool.clientCt}, MAX=${pool.MAXCLIENTS}` );
-          connStr = connStr;
           libpq = new (require('libpq'))();
           libpq.connect( connStr, () => {
             let err = libpq.errorMessage();
@@ -206,25 +206,17 @@ exports.construct = function() {
       },
       execute = ( name, args ) => queryPrepared( name, args ),
 
-      consume = () => {
+      consume = () => new Promise( (resolve,reject) => {
+        function _consume() {
+          if( !libpq.consumeInput() ) reject( libpq.errorMessage() );
+          else if( !libpq.isBusy() ) resolve( pq );
+          else setImmediate( _consume );
+        };
+        _consume();
+      } ),
 
-        // if not busy, nothing to consume
-        if( !libpq.isBusy() ) return Promise.resolve( pq );
-
-        //
-        return new Promise( (resolve,reject) => {
-          function _consume() {
-            if( !libpq.consumeInput() ) return reject( libpq.errorMessage() );
-            if( !libpq.isBusy() ) return resolve( pq );
-            // KLUDGE - stupid polling method to dodge Promise bug
-            setTimeout( _consume );
-          }
-          _consume();
-        } );
-        //
-
-        /* startReader() to listen to 'readable' events
-        return new Promise( (resolve,reject) => {
+      /* startReader() to listen to 'readable' events
+      consume = () => new Promise( (resolve,reject) => {
           libpq.startReader();
           libpq.on('readable', function() {
 
@@ -243,18 +235,16 @@ exports.construct = function() {
             resolve( pq );
           });
         });
-        */
       },
+      */
 
         // internal function to pull in results after query
       getResult = () => new Promise( (resolve,reject) => {
         consume()
         .then( () => {
           libpq.getResult();
-          if( libpq.resultStatus() == 'PGRES_FATAL_ERROR' )
-            return ERR( 'result error: '+libpq.resultErrorMessage(), reject );
-          libpq.stopReader();
-          resolve( pq );
+          if( libpq.resultStatus() == 'PGRES_FATAL_ERROR' ) ERR( libpq.resultErrorMessage(), reject );
+          else resolve( pq );
         })
         .catch( (e) => reject( e ) );
       }),
@@ -300,13 +290,13 @@ exports.construct = function() {
       },
 
       // end use of this session, returning it to pool - returns Promise
-      end = () => {
+      end = ( arg ) => {
 
         // if in transaction, rollback first
         if( trans ) return Promise( (resolve,reject) => {
           rollback()
           .then( () => end() )
-          .then( resolve(pq) )
+          .then( arg || pq )
         })
 
         // clear libpq
@@ -314,11 +304,11 @@ exports.construct = function() {
 
         // if any pending of same connStr, give pending this conn
         if( pool.pending.has( connStr ) && pool.pending.get(connStr).length > 0 ) {
-          //~console.log( 'conn end / to new pq: '+this.conn.connStr );
+          //-console.log( 'conn end / to new pq: '+connStr );
           let nc = pool.pending.get(connStr).pop();
           nc.pq.libpq = libpq;
           libpq = null;
-          nc.resolve( nc.pq );
+          nc.resolve( arg || nc.pq );
         }
 
         // TODO: any pending of different connStr
@@ -326,13 +316,19 @@ exports.construct = function() {
 
         // nothing pending - put into connStr pool
         else {
-          //~console.log( 'conn end / to pool: '+this.conn.connStr );
+          //-console.log( 'conn end / to pool: '+connStr );
           if( !pool.available.has( connStr ) ) pool.available.set( connStr, new Array() );
           pool.available.get( connStr ).push( libpq );
           libpq = null;
         }
 
-        return Promise.resolve( pq );
+        //-console.log( `connStr=${connStr}` );
+        //-console.log( 'pool.available:' );
+        //-for( let k of pool.available.keys() ) console.log( `${k}: ${pool.available.get(k).length}` );
+        //-console.log( 'pool.pending:' );
+        //-for( let k of pool.pending.keys() ) console.log( `${k}: ${pool.pending.get(k).length}` );
+
+        return Promise.resolve( arg || pq );
       },
 
       finish = () => Promise( (resolve,reject) =>
@@ -364,17 +360,17 @@ exports.construct = function() {
        */
       rows = () => {
         let arr = [];
-        for( let r=0; r<this.rowCount(); r++ ) arr.push( row(r) );
+        for( let r=0; r<rowCount(); r++ ) arr.push( row(r) );
         return arr;
       },
       row = (r) => {
         if( r === undefined || r === null ) r = 0;
         if( r > rowCount() ) throw( 'ERR: cannot fetch row '+c );
         let m = {};
-        for( let c=0; c<this.colCount(); c++ ) {
+        for( let c=0; c<colCount(); c++ ) {
           m[libpq.fname(c)] = 1;
           m[libpq.fname(c)] = libpq.getisnull(r,c) ? null : 0;
-          m[libpq.fname(c)] = libpq.getisnull(r,c) ? null : this.col(r,c);
+          m[libpq.fname(c)] = libpq.getisnull(r,c) ? null : col(r,c);
         }
         return m;
       },
