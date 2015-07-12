@@ -162,8 +162,7 @@ exports.construct = function() {
         //~console.log( 'queryParams: '+queryStr );
         if( libpq.isBusy() ) return ERR( 'cannot query: client is busy' );
         libpq.clear(); 
-        let argss = (args instanceof Array) ? args.filter( (x) => libpq.escapeLiteral(x) ) : args;
-        if( !libpq.sendQueryParams( queryStr, argss ) ) return ERR( 'query: '+libpq.errorMessage() );
+        if( !libpq.sendQueryParams( queryStr, args ) ) return ERR( 'query: '+libpq.errorMessage() );
         return getResult();
       },
       prepare = ( name, text, args, ignoreExists ) => {
@@ -199,7 +198,6 @@ exports.construct = function() {
         //~console.log( 'queryPrepared: '+name );
         if( libpq.isBusy() ) return ERR( 'cannot query: client is busy' );
         libpq.clear(); 
-        let argss = (args instanceof Array) ? args.filter( (x) => libpq.escapeLiteral(x) ) : args;
         if( !libpq.sendQueryPrepared( name, args ) )
           return ERR( 'queryPrepared: '+libpq.errorMessage() );
         return getResult();
@@ -238,7 +236,7 @@ exports.construct = function() {
       },
       */
 
-        // internal function to pull in results after query
+      // internal function to pull in results after query
       getResult = () => new Promise( (resolve,reject) => {
         consume()
         .then( () => {
